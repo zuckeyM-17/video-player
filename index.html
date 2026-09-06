@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Player</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #111;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ---- Drop zone ---- */
+    #drop-zone {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      border: 3px dashed #444;
+      border-radius: 16px;
+      margin: 40px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    #drop-zone.dragover { border-color: #4a9eff; background: rgba(74,158,255,.07); }
+    #drop-zone svg { opacity: .5; }
+    #drop-zone p { font-size: 1.2rem; color: #888; }
+    #drop-zone span { font-size: .85rem; color: #555; }
+    #file-input { display: none; }
+
+    /* ---- Player wrapper ---- */
+    #player-wrapper {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+    }
+    #player-wrapper.active { display: flex; }
+
+    /* ---- Video area ---- */
+    #video-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+    }
+    video {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+    }
+
+    /* Play overlay */
+    #play-overlay {
+      position: absolute;
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.15);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity .2s;
+      pointer-events: none;
+    }
+    #play-overlay.show { opacity: 1; }
+    #play-overlay svg { width: 32px; height: 32px; }
+
+    /* ---- Controls ---- */
+    #controls {
+      background: linear-gradient(to top, #000 0%, #0d0d0d 100%);
+      padding: 10px 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Seek bar */
+    #seek-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #time-current { font-size: .85rem; color: #aaa; min-width: 48px; text-align: right; }
+    #time-duration { font-size: .85rem; color: #555; min-width: 48px; }
+
+    .seek-wrap {
+      flex: 1;
+      position: relative;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+    .seek-track {
+      width: 100%;
+      height: 8px;
+      background: #333;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+    .seek-track-inner {
+      position: absolute;
+      inset: 0;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #seek-buffered {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: #555;
+      border-radius: 4px;
+      transition: width .3s;
+    }
+    #seek-progress {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: #4a9eff;
+      border-radius: 4px;
+    }
+    #seek-thumb {
+      position: absolute;
+      top: 50%;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.6);
+      transform: translate(-50%, -50%);
+      transition: transform .1s;
+      pointer-events: none;
+    }
+    .seek-wrap:hover #seek-thumb { transform: translate(-50%, -50%) scale(1.25); }
+    .seek-wrap:active #seek-thumb { transform: translate(-50%, -50%) scale(1.4); }
+
+    /* Button row */
+    #btn-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ctrl-btn {
+      background: none;
+      border: none;
+      color: #ccc;
+      cursor: pointer;
+      border-radius: 8px;
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color .15s, background .15s;
+    }
+    .ctrl-btn:hover { color: #fff; background: rgba(255,255,255,.1); }
+    .ctrl-btn svg { width: 22px; height: 22px; }
+    #btn-play svg { width: 28px; height: 28px; }
+
+    /* Volume */
+    #volume-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #volume-slider {
+      -webkit-appearance: none;
+      width: 90px;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+    #volume-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,.5);
+    }
+
+    /* Speed */
+    #speed-select {
+      background: #222;
+      color: #ccc;
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: .8rem;
+      cursor: pointer;
+      outline: none;
+    }
+    #speed-select:hover { border-color: #666; }
+
+    /* Spacer */
+    .spacer { flex: 1; }
+
+    /* File name */
+    #file-name {
+      font-size: .8rem;
+      color: #555;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 280px;
+    }
+
+    /* Keyboard hint */
+    #hint {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.75);
+      color: #aaa;
+      font-size: .75rem;
+      padding: 6px 14px;
+      border-radius: 20px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    #hint.show { opacity: 1; }
+
+    /* Fullscreen tweaks */
+    :fullscreen #controls { position: absolute; bottom: 0; left: 0; right: 0; }
+    :fullscreen #player-wrapper { height: 100vh; }
+    :fullscreen #video-container { flex: 1; }
+  </style>
+</head>
+<body>
+
+<!-- Drop zone -->
+<div id="drop-zone">
+  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.9L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+  </svg>
+  <p>MP4ファイルをここにドロップ</p>
+  <span>またはクリックしてファイルを選択</span>
+  <input type="file" id="file-input" accept="video/mp4,video/*">
+</div>
+
+<!-- Player -->
+<div id="player-wrapper">
+  <div id="video-container">
+    <video id="video" preload="metadata"></video>
+    <div id="play-overlay">
+      <svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+    </div>
+  </div>
+
+  <div id="controls">
+    <!-- Seek bar -->
+    <div id="seek-row">
+      <span id="time-current">0:00</span>
+      <div class="seek-wrap" id="seek-wrap">
+        <div class="seek-track">
+          <div class="seek-track-inner">
+            <div id="seek-buffered"></div>
+            <div id="seek-progress"></div>
+          </div>
+        </div>
+        <div id="seek-thumb"></div>
+      </div>
+      <span id="time-duration">0:00</span>
+    </div>
+
+    <!-- Button row -->
+    <div id="btn-row">
+      <!-- Skip back 10s -->
+      <button class="ctrl-btn" id="btn-skip-back" title="10秒戻る (←)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+          <text x="8" y="15" fill="currentColor" stroke="none" font-size="6" font-weight="bold">10</text>
+        </svg>
+      </button>
+
+      <!-- Play/Pause -->
+      <button class="ctrl-btn" id="btn-play" title="再生/一時停止 (Space)">
+        <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg id="icon-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </button>
+
+      <!-- Skip forward 10s -->
+      <button class="ctrl-btn" id="btn-skip-fwd" title="10秒進む (→)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/>
+          <text x="8" y="15" fill="currentColor" stroke="none" font-size="6" font-weight="bold">10</text>
+        </svg>
+      </button>
+
+      <!-- Volume -->
+      <div id="volume-group">
+        <button class="ctrl-btn" id="btn-mute" title="ミュート (M)">
+          <svg id="icon-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          </svg>
+          <svg id="icon-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+          </svg>
+        </button>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.02" value="1">
+      </div>
+
+      <!-- Speed -->
+      <select id="speed-select" title="再生速度">
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+      </select>
+
+      <div class="spacer"></div>
+
+      <span id="file-name"></span>
+
+      <!-- Open another file -->
+      <button class="ctrl-btn" id="btn-open" title="別のファイルを開く">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+        </svg>
+      </button>
+
+      <!-- Fullscreen -->
+      <button class="ctrl-btn" id="btn-fullscreen" title="フルスクリーン (F)">
+        <svg id="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>
+        </svg>
+        <svg id="icon-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="hint"></div>
+
+<script>
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const wrapper    = document.getElementById('player-wrapper');
+  const video      = document.getElementById('video');
+  const vidContainer = document.getElementById('video-container');
+  const playOverlay  = document.getElementById('play-overlay');
+
+  const seekWrap   = document.getElementById('seek-wrap');
+  const seekProg   = document.getElementById('seek-progress');
+  const seekBuf    = document.getElementById('seek-buffered');
+  const seekThumb  = document.getElementById('seek-thumb');
+  const timeCur    = document.getElementById('time-current');
+  const timeDur    = document.getElementById('time-duration');
+
+  const btnPlay    = document.getElementById('btn-play');
+  const iconPlay   = document.getElementById('icon-play');
+  const iconPause  = document.getElementById('icon-pause');
+  const btnSkipBack = document.getElementById('btn-skip-back');
+  const btnSkipFwd  = document.getElementById('btn-skip-fwd');
+  const btnMute    = document.getElementById('btn-mute');
+  const iconVol    = document.getElementById('icon-vol');
+  const iconMute   = document.getElementById('icon-mute');
+  const volSlider  = document.getElementById('volume-slider');
+  const speedSel   = document.getElementById('speed-select');
+  const fileNameEl = document.getElementById('file-name');
+  const btnOpen    = document.getElementById('btn-open');
+  const btnFS      = document.getElementById('btn-fullscreen');
+  const iconExpand = document.getElementById('icon-expand');
+  const iconCompress = document.getElementById('icon-compress');
+  const hint       = document.getElementById('hint');
+
+  // ---- File loading ----
+  function loadFile(file) {
+    if (!file || !file.type.startsWith('video/')) return;
+    const url = URL.createObjectURL(file);
+    video.src = url;
+    fileNameEl.textContent = file.name;
+    dropZone.style.display = 'none';
+    wrapper.classList.add('active');
+    video.play().catch(() => {});
+  }
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    loadFile(e.dataTransfer.files[0]);
+  });
+
+  btnOpen.addEventListener('click', () => fileInput.click());
+
+  // ---- Play/Pause ----
+  function togglePlay() {
+    if (video.paused) video.play().catch(() => {}); else video.pause();
+  }
+  vidContainer.addEventListener('click', togglePlay);
+  btnPlay.addEventListener('click', togglePlay);
+
+  video.addEventListener('play', () => {
+    iconPlay.style.display = 'none';
+    iconPause.style.display = '';
+    flashOverlay('pause');
+  });
+  video.addEventListener('pause', () => {
+    iconPlay.style.display = '';
+    iconPause.style.display = 'none';
+    flashOverlay('play');
+  });
+
+  let overlayTimer;
+  function flashOverlay(state) {
+    playOverlay.querySelector('svg path').setAttribute('d',
+      state === 'play'
+        ? 'M8 5v14l11-7z'
+        : 'M6 19h4V5H6v14zm8-14v14h4V5h-4z'
+    );
+    playOverlay.classList.add('show');
+    clearTimeout(overlayTimer);
+    overlayTimer = setTimeout(() => playOverlay.classList.remove('show'), 600);
+  }
+
+  // ---- Seek bar ----
+  function fmtTime(s) {
+    if (!isFinite(s)) return '0:00';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${m}:${String(sec).padStart(2,'0')}`;
+  }
+
+  video.addEventListener('loadedmetadata', () => {
+    timeDur.textContent = fmtTime(video.duration);
+  });
+
+  video.addEventListener('timeupdate', () => {
+    if (isSeeking) return;
+    const pct = video.duration ? video.currentTime / video.duration : 0;
+    updateSeekUI(pct);
+    timeCur.textContent = fmtTime(video.currentTime);
+  });
+
+  video.addEventListener('progress', () => {
+    if (!video.duration) return;
+    let buf = 0;
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.buffered.start(i) <= video.currentTime) {
+        buf = Math.max(buf, video.buffered.end(i));
+      }
+    }
+    seekBuf.style.width = (buf / video.duration * 100) + '%';
+  });
+
+  function updateSeekUI(pct) {
+    const p = Math.max(0, Math.min(1, pct));
+    seekProg.style.width  = (p * 100) + '%';
+    seekThumb.style.left  = (p * 100) + '%';
+  }
+
+  let isSeeking = false;
+
+  // duration が未確定 (NaN/Infinity/0) の間はシーク操作を無視する
+  function seekable() {
+    return isFinite(video.duration) && video.duration > 0;
+  }
+
+  function seekTo(t) {
+    if (!seekable()) return;
+    video.currentTime = Math.max(0, Math.min(video.duration, t));
+  }
+
+  function seekFromEvent(e) {
+    if (!seekable()) return;
+    const rect = seekWrap.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
+    updateSeekUI(pct);
+    timeCur.textContent = fmtTime(pct * video.duration);
+    video.currentTime = pct * video.duration;
+  }
+
+  seekWrap.addEventListener('mousedown', e => {
+    if (!seekable()) return;
+    isSeeking = true;
+    seekFromEvent(e);
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => { if (isSeeking) seekFromEvent(e); });
+  document.addEventListener('mouseup', () => { isSeeking = false; });
+
+  seekWrap.addEventListener('touchstart', e => { if (!seekable()) return; isSeeking = true; seekFromEvent(e); }, { passive: true });
+  document.addEventListener('touchmove', e => { if (isSeeking) seekFromEvent(e); }, { passive: true });
+  document.addEventListener('touchend', () => { isSeeking = false; });
+
+  // ---- Skip buttons ----
+  btnSkipBack.addEventListener('click', () => seekTo(video.currentTime - 10));
+  btnSkipFwd.addEventListener('click',  () => seekTo(video.currentTime + 10));
+
+  // ---- Volume ----
+  volSlider.addEventListener('input', () => {
+    video.volume = volSlider.value;
+    video.muted = video.volume === 0;
+    updateVolIcon();
+  });
+  btnMute.addEventListener('click', () => {
+    video.muted = !video.muted;
+    updateVolIcon();
+  });
+  function updateVolIcon() {
+    const muted = video.muted || video.volume === 0;
+    iconVol.style.display  = muted ? 'none' : '';
+    iconMute.style.display = muted ? '' : 'none';
+  }
+
+  // ---- Speed ----
+  speedSel.addEventListener('change', () => { video.playbackRate = parseFloat(speedSel.value); });
+
+  // ---- Fullscreen ----
+  btnFS.addEventListener('click', toggleFS);
+  function toggleFS() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (wrapper.requestFullscreen) {
+      wrapper.requestFullscreen().catch(() => {});
+    } else if (video.webkitEnterFullscreen) {
+      // iOS Safari は要素単位のフルスクリーンに非対応。video のみネイティブ表示する
+      video.webkitEnterFullscreen();
+    }
+  }
+  function updateFSIcon(isFS) {
+    iconExpand.style.display   = isFS ? 'none' : '';
+    iconCompress.style.display = isFS ? '' : 'none';
+  }
+  document.addEventListener('fullscreenchange', () => updateFSIcon(!!document.fullscreenElement));
+  video.addEventListener('webkitbeginfullscreen', () => updateFSIcon(true));
+  video.addEventListener('webkitendfullscreen',   () => updateFSIcon(false));
+
+  // ---- Keyboard shortcuts ----
+  const hints = {
+    ' ':  '再生 / 一時停止',
+    'ArrowLeft':  '← 10秒戻る',
+    'ArrowRight': '→ 10秒進む',
+    'm': 'M ミュート切替',
+    'f': 'F フルスクリーン',
+  };
+  let hintTimer;
+  document.addEventListener('keydown', e => {
+    const inInput = ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
+    switch(e.key) {
+      case ' ':
+        if (inInput) return;
+        e.preventDefault(); togglePlay(); break;
+      case 'ArrowLeft':
+        e.preventDefault(); seekTo(video.currentTime - 10); break;
+      case 'ArrowRight':
+        e.preventDefault(); seekTo(video.currentTime + 10); break;
+      case 'm': case 'M':
+        if (inInput) return;
+        video.muted = !video.muted; updateVolIcon(); break;
+      case 'f': case 'F':
+        if (inInput) return;
+        toggleFS(); break;
+      default: return;
+    }
+    if (hints[e.key]) {
+      hint.textContent = hints[e.key];
+      hint.classList.add('show');
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => hint.classList.remove('show'), 1200);
+    }
+  });
+</script>
+</body>
+</html>
